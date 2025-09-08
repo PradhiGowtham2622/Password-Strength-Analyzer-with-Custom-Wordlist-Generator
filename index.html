@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Password Strength Checker</title>
+
+  <style>
+    :root{
+      --bg:#f6f8fb; --card:#fff; --accent:#4CAF50; --muted:#666;
+    }
+    body{font-family:Inter,system-ui,Arial; background:var(--bg); margin:0; padding:32px;}
+    .wrap{max-width:720px;margin:20px auto;padding:28px;background:var(--card);border-radius:12px;box-shadow:0 6px 20px rgba(12,22,33,0.08)}
+    h1{margin:0 0 12px;font-size:22px}
+    p.lead{margin-top:0;color:var(--muted)}
+    .row{display:flex;gap:12px;align-items:center}
+    input[type="password"]{flex:1;padding:12px;border-radius:8px;border:1px solid #d6dcea;font-size:16px}
+    button{background:var(--accent);color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer}
+    .meter{height:12px;background:#e9eef6;border-radius:8px;overflow:hidden;margin:12px 0}
+    .meter-fill{height:100%;width:0%;transition:width .25s ease, background .25s ease}
+    .score-0{background:#ef5350}  /* very weak */
+    .score-1{background:#ffb74d}  /* weak */
+    .score-2{background:#ffd54f}  /* fair */
+    .score-3{background:#81c784}  /* good */
+    .score-4{background:#4caf50}  /* strong */
+    .results{margin-top:14px; padding:14px;border-radius:8px;background:#fafbff;border:1px solid #edf2fb}
+    ul{margin:8px 0 0 20px}
+    small.tip{color:#888;display:block;margin-top:8px}
+    footer{font-size:13px;color:#888;margin-top:18px;text-align:center}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🔐 Password Strength Checker</h1>
+    <p class="lead">Type a password — everything is evaluated locally in your browser (no server).</p>
+
+    <div class="row">
+      <input id="password" type="password" placeholder="Enter password" autocomplete="new-password" />
+      <button id="checkBtn">Check</button>
+    </div>
+
+    <div class="meter" aria-hidden="true">
+      <div id="meterFill" class="meter-fill score-0"></div>
+    </div>
+    <div id="scoreText" class="muted"></div>
+
+    <div id="results" class="results" style="display:none"></div>
+    <small class="tip">Tip: Avoid using real production passwords here. Use test passwords when experimenting.</small>
+
+    <footer>
+      Hosted in-browser. To publish, push this file to GitHub and enable Pages (steps below).
+    </footer>
+  </div>
+
+  <!-- zxcvbn JS (runs in browser) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/zxcvbn/4.4.2/zxcvbn.js" integrity="" crossorigin="anonymous"></script>
+
+  <script>
+  // ---- helper: simple rule-based check ----
+  function ruleBased(password){
+    const suggestions = [];
+    let score = 0;
+    if (password.length >= 8) score++; else suggestions.push("Use at least 8 characters.");
+    if (/[A-Z]/.test(password)) score++; else suggestions.push("Add uppercase letters (A–Z).");
+    if (/[a-z]/.test(password)) score++; else suggestions.push("Add lowercase letters (a–z).");
+    if (/\d/.test(password)) score++; else suggestions.push("Include numbers (0–9).");
+    if (/[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?`~]/.test(password)) score++; else suggestions.push("Add special characters (e.g. !@#$%).");
+    return {score, suggestions};
+  }
+
+  // ---- UI wiring ----
+  const pw = document.getElementById('password');
+  const checkBtn = document.getElementById('checkBtn');
+  const results = document.getElementById('results');
+  const meterFill = document.getElementById('meterFill');
+  const scoreText = document.getElementById('scoreText');
+
+  function humanLabel(score){
+    return ["Very weak","Weak","Fair","Good","Strong"][score] || "";
+  }
+
+  function render(password){
+    if(!password){
+      meterFill.style.width = '0%';
+      meterFill.className = 'meter-fill score-0';
+      scoreText.textContent = '';
+      results.style.display = 'none';
+      results.innerHTML = '';
+      return;
+    }
+
+    // rule-based
+    const r = ruleBased(password);
+
+    // zxcvbn (if loaded)
+    const z = (typeof zxcvbn === 'function') ? zxcvbn(password) : null;
+    const zscore = z ? z.score : Math.max(0, Math.min(4, r.score - 1));
+    const pct = (zscore / 4) * 100;
+
+    meterFill.style.width = pct + '%';
+    meterFill.className = 'meter-fill score-' + zscore;
+    scoreText.textContent = humanLabel(zscore) + ' — ' + zscore + '/4';
+
+    // compose results HTML
+    let html = `<p><strong>Rule-based:</strong> ${r.score === 5 ? 'Strong' : (r.score >= 3 ? 'Moderate' : 'Weak')}</p>`;
+    if(r.suggestions.length){
+      html += '<p><strong>Rule suggestions:</strong><ul>';
+      html += r.suggestions.map(s => `<li>${s}</li>`).join('');
+      html += '</ul></p>';
+    }
+
+    if(z){
+      html += `<hr style="border:none;border-top:1px solid #edf2fb;margin:10px 0">`;
+      html += `<p><strong>zxcvbn score:</strong> ${z.score} / 4</p>`;
+      html += `<p><strong>Crack time (estimate):</strong> ${z.crack_times_display.offline_fast_hashing_1e10_per_second}</p>`;
+      if(z.feedback && (z.feedback.warning || (z.feedback.suggestions && z.feedback.suggestions.length))){
+        html += `<p><strong>zxcvbn feedback:</strong>`;
+        if(z.feedback.warning) html += `<div style="color:#b03a2e">${z.feedback.warning}</div>`;
+        if(z.feedback.suggestions && z.feedback.suggestions.length){
+          html += '<ul>' + z.feedback.suggestions.map(s => `<li>${s}</li>`).join('') + '</ul>';
+        }
+        html += `</p>`;
+      }
+    }
+
+    results.style.display = 'block';
+    results.innerHTML = html;
+  }
+
+  // live preview as user types
+  pw.addEventListener('input', (e) => render(e.target.value));
+  checkBtn.addEventListener('click', () => render(pw.value));
+  </script>
+</body>
+</html>
